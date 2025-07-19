@@ -11,6 +11,14 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 5000;
 
+// Multer setup
+const storage = multer.memoryStorage();
+const multerUpload = multer({ storage }); // Call multer() properly
+const upload = multerUpload.fields([
+  { name: "mainImage", maxCount: 1 },
+  { name: "gallery", maxCount: 10 },
+]);
+
 var admin = require("firebase-admin");
 
 var serviceAccount = require("./FB_TOKEN.json");
@@ -30,13 +38,6 @@ app.use(express.json());
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@iftekharbases.ulu3uwc.mongodb.net/?retryWrites=true&w=majority&appName=IftekharBases`;
-
-// Multer setup
-const storage = multer.memoryStorage();
-const upload = multer.fields([
-  { name: "mainImage", maxCount: 1 },
-  { name: "gallery", maxCount: 10 },
-]);
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
