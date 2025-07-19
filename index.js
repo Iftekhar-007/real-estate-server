@@ -14,10 +14,7 @@ const port = process.env.PORT || 5000;
 // Multer setup
 const storage = multer.memoryStorage();
 const multerUpload = multer({ storage }); // Call multer() properly
-const upload = multerUpload.fields([
-  { name: "mainImage", maxCount: 1 },
-  { name: "gallery", maxCount: 10 },
-]);
+const upload = multerUpload.fields([{ name: "mainImage", maxCount: 1 }]);
 
 var admin = require("firebase-admin");
 
@@ -58,6 +55,7 @@ async function run() {
     const usersCollection = database.collection("users");
     const adminsCollection = database.collection("admins");
     const agentsCollection = database.collection("agents");
+    // const propertiesCollection = database.collection("properties");
     const propertiesCollection = database.collection("properties");
 
     // verifyFB Token
@@ -74,6 +72,60 @@ async function run() {
         res.status(403).send("Forbidden");
       }
     };
+
+    // verify admin
+    // Middleware to verify admin
+    function verifyAdmin(req, res, next) {
+      // Example: get user role from req.user (set by your auth middleware)
+      // This depends on your auth setup, adjust accordingly
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized: No user info" });
+      }
+
+      if (user.role !== "admin") {
+        return res.status(403).json({ message: "Forbidden: Admins only" });
+      }
+
+      next();
+    }
+
+    // verify agent
+
+    function verifyAgent(req, res, next) {
+      // Example: get user role from req.user (set by your auth middleware)
+      // This depends on your auth setup, adjust accordingly
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized: No user info" });
+      }
+
+      if (user.role !== "agent") {
+        return res.status(403).json({ message: "Forbidden: Admins only" });
+      }
+
+      next();
+    }
+
+    // verify user
+
+    function verifyUser(req, res, next) {
+      // Example: get user role from req.user (set by your auth middleware)
+      // This depends on your auth setup, adjust accordingly
+      const user = req.user;
+
+      if (!user) {
+        return res.status(401).json({ message: "Unauthorized: No user info" });
+      }
+
+      if (user.role !== "user") {
+        return res.status(403).json({ message: "Forbidden: Admins only" });
+      }
+
+      next();
+    }
 
     // ✅ POST: Create user
     app.post("/users", async (req, res) => {
@@ -206,31 +258,111 @@ async function run() {
 
     // add property
     // API route for adding property
-    app.post("/properties", upload, async (req, res) => {
+    app.post(
+      "/properties",
+      verifyFBToken,
+      verifyAdmin,
+      upload,
+      async (req, res) => {
+        try {
+          const {
+            title,
+            location,
+            basePrice,
+            maxPrice,
+            agentName,
+            agentEmail,
+          } = req.body;
+
+          const mainImage = req.files["mainImage"]?.[0]?.buffer;
+
+          const propertyData = {
+            title,
+            location,
+            basePrice: Number(basePrice),
+            maxPrice: Number(maxPrice),
+            agentName,
+            agentEmail,
+            mainImage,
+            verificationStatus: "pending", // Add default verificationStatus
+            saleStatus: "available", // Add default saleStatus
+            createdAt: new Date(),
+          };
+
+          const result = await propertiesCollection.insertOne(propertyData);
+          res.send(result);
+        } catch (error) {
+          console.error(error);
+          res.status(500).send({ error: "Failed to add property" });
+        }
+      }
+    );
+
+    // app.get("/properties", async (req, res) => {
+    //   try {
+    //     const properties = await propertiesCollection.find({}).toArray();
+    //     res.status(200).json(properties);
+    //   } catch (error) {
+    //     console.error("Error fetching properties:", error);
+    //     res.status(500).json({ message: "Server error fetching properties" });
+    //   }
+    // });
+
+    //  get properties
+    app.get("/properties", async (req, res) => {
       try {
-        const { title, location, basePrice, maxPrice, agentName, agentEmail } =
-          req.body;
+        const properties = await propertiesCollection
+          .aggregate([
+            {
+              $lookup: {
+                from: "agents",
+                localField: "agentEmail",
+                foreignField: "email",
+                as: "agentInfo",
+              },
+            },
+            {
+              $unwind: { path: "$agentInfo", preserveNullAndEmptyArrays: true },
+            },
 
-        const mainImage = req.files["mainImage"]?.[0]?.buffer;
-        const gallery = req.files["gallery"]?.map((file) => file.buffer) || [];
+            // Now lookup usersCollection to get agent image
+            {
+              $lookup: {
+                from: "users",
+                localField: "agentInfo.email",
+                foreignField: "email",
+                as: "userInfo",
+              },
+            },
+            {
+              $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true },
+            },
 
-        const propertyData = {
-          title,
-          location,
-          basePrice: Number(basePrice),
-          maxPrice: Number(maxPrice),
-          agentName,
-          agentEmail,
-          mainImage,
-          gallery,
-          createdAt: new Date(),
-        };
+            {
+              $project: {
+                title: 1,
+                location: 1,
+                basePrice: 1,
+                maxPrice: 1,
+                verificationStatus: 1,
+                saleStatus: 1,
+                createdAt: 1,
 
-        const result = await propertiesCollection.insertOne(propertyData);
-        res.send(result);
+                agentName: { $ifNull: ["$agentInfo.name", "$agentName"] },
+                agentEmail: { $ifNull: ["$agentInfo.email", "$agentEmail"] },
+                agentPhoto: "$userInfo.image", // agent's image from users collection
+              },
+            },
+          ])
+          .toArray();
+
+        res.status(200).json(properties);
       } catch (error) {
-        console.error(error);
-        res.status(500).send({ error: "Failed to add property" });
+        console.error(
+          "Error fetching properties with agent and user info:",
+          error
+        );
+        res.status(500).json({ message: "Server error fetching properties" });
       }
     });
 
