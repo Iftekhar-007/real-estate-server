@@ -57,6 +57,7 @@ async function run() {
     const usersCollection = database.collection("users");
     const adminsCollection = database.collection("admins");
     const agentsCollection = database.collection("agents");
+    const propertiesCollection = database.collection("properties");
 
     // verifyFB Token
 
@@ -224,9 +225,7 @@ async function run() {
           createdAt: new Date(),
         };
 
-        const result = await db
-          .collection("properties")
-          .insertOne(propertyData);
+        const result = await propertiesCollection.insertOne(propertyData);
         res.send(result);
       } catch (error) {
         console.error(error);
