@@ -55,8 +55,10 @@ async function run() {
     const usersCollection = database.collection("users");
     const adminsCollection = database.collection("admins");
     const agentsCollection = database.collection("agents");
-    // const propertiesCollection = database.collection("properties");
+
     const propertiesCollection = database.collection("properties");
+    const wishlistCollection = database.collection("wishlist");
+    const reviewsCollection = database.collection("reviews");
 
     // verifyFB Token
 
@@ -67,6 +69,14 @@ async function run() {
       try {
         const decoded = await admin.auth().verifyIdToken(token);
         req.decoded = decoded;
+
+        // 🔥 Fetch the user from your users collection
+        const user = await usersCollection.findOne({ email: decoded.email });
+        if (!user) {
+          return res.status(404).json({ message: "User not found in DB" });
+        }
+
+        req.user = user;
         next();
       } catch (err) {
         res.status(403).send("Forbidden");
@@ -202,7 +212,7 @@ async function run() {
           name: user.name,
           email: user.email,
           role: "agent",
-          // image: user.image,
+          image: user.image,
           createdAt: new Date(),
         });
       }
@@ -261,7 +271,7 @@ async function run() {
     app.post(
       "/properties",
       verifyFBToken,
-      verifyAdmin,
+      verifyAgent,
       upload,
       async (req, res) => {
         try {
@@ -309,7 +319,7 @@ async function run() {
     // });
 
     //  get properties
-    app.get("/properties", async (req, res) => {
+    app.get("/properties", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
         const properties = await propertiesCollection
           .aggregate([
@@ -363,6 +373,278 @@ async function run() {
           error
         );
         res.status(500).json({ message: "Server error fetching properties" });
+      }
+    });
+
+    // 🛡️ Protected Route: Get properties added by the logged-in agent
+    // app.get("/my-properties", verifyFBToken, async (req, res) => {
+    //   try {
+    //     const email = req.decoded.email; // 👈 Comes from Firebase Auth token
+
+    //     // 1. Get the agent's image from usersCollection
+    //     const user = await usersCollection.findOne({ email });
+
+    //     if (!user) {
+    //       return res.status(404).send({ message: "Agent not found" });
+    //     }
+
+    //     const agentImage = user.photoURL || user.image || null;
+
+    //     // 2. Get all properties added by this agent
+    //     const agentProperties = await propertiesCollection
+    //       .find({ agentEmail: email })
+    //       .toArray();
+
+    //     // 3. Attach agent image to each property
+    //     const propertiesWithImage = agentProperties.map((property) => ({
+    //       ...property,
+    //       agentPhoto: agentImage, // add the image from user collection
+    //     }));
+
+    //     res.send(propertiesWithImage);
+    //   } catch (err) {
+    //     console.error("Error in /my-properties:", err);
+    //     res.status(500).send({ error: "Something went wrong" });
+    //   }
+    // });
+
+    // GET /my-properties : Return properties added by logged-in agent
+    app.get("/my-properties", verifyFBToken, verifyAgent, async (req, res) => {
+      try {
+        // Get agent email from Firebase decoded token
+        const agentEmail = req.decoded.email;
+
+        if (!agentEmail) {
+          return res.status(400).json({ message: "Email not found in token" });
+        }
+
+        // Fetch properties added by this agent with agent info lookup
+        const properties = await propertiesCollection
+          .aggregate([
+            {
+              $match: { agentEmail: agentEmail }, // only this agent's properties
+            },
+            {
+              $lookup: {
+                from: "agents",
+                localField: "agentEmail",
+                foreignField: "email",
+                as: "agentInfo",
+              },
+            },
+            {
+              $unwind: { path: "$agentInfo", preserveNullAndEmptyArrays: true },
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "agentInfo.email",
+                foreignField: "email",
+                as: "userInfo",
+              },
+            },
+            {
+              $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true },
+            },
+            {
+              $project: {
+                title: 1,
+                location: 1,
+                basePrice: 1,
+                maxPrice: 1,
+                verificationStatus: 1,
+                saleStatus: 1,
+                createdAt: 1,
+                mainImage: 1, // Important: keep the buffer here
+
+                agentName: { $ifNull: ["$agentInfo.name", "$agentName"] },
+                agentEmail: { $ifNull: ["$agentInfo.email", "$agentEmail"] },
+                agentPhoto: "$userInfo.image", // agent image URL or path
+              },
+            },
+          ])
+          .toArray();
+
+        // Convert property mainImage from Buffer to base64 data URL for frontend
+        const propertiesWithImages = properties.map((prop) => ({
+          ...prop,
+          mainImage: prop.mainImage
+            ? `data:image/jpeg;base64,${prop.mainImage.toString("base64")}`
+            : null,
+        }));
+
+        res.status(200).json(propertiesWithImages);
+      } catch (error) {
+        console.error("Error fetching agent properties:", error);
+        res.status(500).json({ message: "Server error fetching properties" });
+      }
+    });
+
+    // GET one property
+    app.get("/properties/:id", async (req, res) => {
+      const id = new ObjectId(req.params.id);
+      const result = await propertiesCollection.findOne({ _id: id });
+      res.send(result);
+    });
+
+    // PATCH (update) property
+    app.patch("/properties/:id", async (req, res) => {
+      const id = new ObjectId(req.params.id);
+      const updateDoc = {
+        $set: {
+          title: req.body.title,
+          location: req.body.location,
+          basePrice: req.body.basePrice,
+          maxPrice: req.body.maxPrice,
+        },
+      };
+      const result = await propertiesCollection.updateOne(
+        { _id: id },
+        updateDoc
+      );
+      res.send(result);
+    });
+
+    // DELETE /properties/:id
+    app.delete(
+      "/properties/:id",
+      verifyFBToken,
+      verifyAgent,
+      async (req, res) => {
+        const id = req.params.id;
+
+        try {
+          const result = await propertiesCollection.deleteOne({
+            _id: new ObjectId(id),
+            agentEmail: req.user.email,
+          });
+
+          if (result.deletedCount > 0) {
+            return res.status(200).json({ message: "Property deleted" });
+          } else {
+            return res
+              .status(404)
+              .json({ message: "Not found or unauthorized" });
+          }
+        } catch (err) {
+          res
+            .status(500)
+            .json({ message: "Delete failed", error: err.message });
+        }
+      }
+    );
+
+    // PATCH /properties/verify/:id
+    app.patch("/properties/verify/:id", async (req, res) => {
+      const propertyId = req.params.id;
+      const { status } = req.body; // should be either 'approved' or 'rejected'
+
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Invalid verification status" });
+      }
+
+      const result = await propertiesCollection.updateOne(
+        { _id: new ObjectId(propertyId) },
+        { $set: { verificationStatus: status } }
+      );
+
+      res.send(result);
+    });
+
+    // Get all verified properties (for all users)
+    app.get("/all-properties", verifyFBToken, async (req, res) => {
+      try {
+        const properties = await propertiesCollection
+          .aggregate([
+            {
+              $match: { verificationStatus: "approved" }, // only approved properties
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "agentEmail",
+                foreignField: "email",
+                as: "agentInfo",
+              },
+            },
+            {
+              $unwind: "$agentInfo",
+            },
+            {
+              $project: {
+                title: 1,
+                location: 1,
+                verificationStatus: 1,
+                basePrice: 1,
+                maxPrice: 1,
+                mainImage: 1,
+                agentName: "$agentInfo.name",
+                agentPhoto: "$agentInfo.image",
+              },
+            },
+          ])
+          .toArray();
+
+        const propertiesWithImages = properties.map((prop) => ({
+          ...prop,
+          mainImage: prop.mainImage
+            ? `data:image/jpeg;base64,${prop.mainImage.toString("base64")}`
+            : null,
+        }));
+
+        res.send(propertiesWithImages);
+      } catch (error) {
+        console.error("Error in /all-properties:", error);
+        res.status(500).send("Server error");
+      }
+    });
+
+    // get property by id fro users
+
+    app.get("/properties/details/:id", async (req, res) => {
+      const id = req.params.id;
+
+      try {
+        const property = await propertiesCollection
+          .aggregate([
+            {
+              $match: {
+                _id: new ObjectId(id),
+                verificationStatus: "approved",
+              },
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "agentEmail",
+                foreignField: "email",
+                as: "agentInfo",
+              },
+            },
+            {
+              $unwind: "$agentInfo",
+            },
+          ])
+          .toArray();
+
+        if (!property || property.length === 0) {
+          return res.status(404).json({ message: "Property not found" });
+        }
+
+        const prop = property[0];
+
+        const formatted = {
+          ...prop,
+          mainImage: prop.mainImage
+            ? `data:image/jpeg;base64,${prop.mainImage.toString("base64")}`
+            : null,
+          agentImage: prop.agentInfo?.image || "",
+          agentName: prop.agentInfo?.name || "",
+        };
+
+        res.json(formatted);
+      } catch (error) {
+        res.status(500).json({ message: "Server error", error });
       }
     });
 
