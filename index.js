@@ -60,6 +60,7 @@ async function run() {
     const propertiesCollection = database.collection("properties");
     const wishlistCollection = database.collection("wishlist");
     const reviewsCollection = database.collection("reviews");
+    const offersCollection = database.collection("offers");
 
     // verifyFB Token
 
@@ -482,29 +483,41 @@ async function run() {
     });
 
     // GET one property
+    // app.get("/properties/:id", async (req, res) => {
+    //   const id = new ObjectId(req.params.id);
+    //   const result = await propertiesCollection.findOne({ _id: id });
+    //   res.send(result);
+    // });
+
     app.get("/properties/:id", async (req, res) => {
       const id = new ObjectId(req.params.id);
       const result = await propertiesCollection.findOne({ _id: id });
+      console.log("Property fetched:", result); // add this debug line
       res.send(result);
     });
 
     // PATCH (update) property
-    app.patch("/properties/:id", async (req, res) => {
-      const id = new ObjectId(req.params.id);
-      const updateDoc = {
-        $set: {
-          title: req.body.title,
-          location: req.body.location,
-          basePrice: req.body.basePrice,
-          maxPrice: req.body.maxPrice,
-        },
-      };
-      const result = await propertiesCollection.updateOne(
-        { _id: id },
-        updateDoc
-      );
-      res.send(result);
-    });
+    app.patch(
+      "/properties/:id",
+      verifyFBToken,
+      verifyAgent,
+      async (req, res) => {
+        const id = new ObjectId(req.params.id);
+        const updateDoc = {
+          $set: {
+            title: req.body.title,
+            location: req.body.location,
+            basePrice: req.body.basePrice,
+            maxPrice: req.body.maxPrice,
+          },
+        };
+        const result = await propertiesCollection.updateOne(
+          { _id: id },
+          updateDoc
+        );
+        res.send(result);
+      }
+    );
 
     // DELETE /properties/:id
     app.delete(
@@ -602,52 +615,57 @@ async function run() {
 
     // get property by id fro users
 
-    app.get("/properties/details/:id", async (req, res) => {
-      const id = req.params.id;
+    app.get(
+      "/properties/details/:id",
+      verifyFBToken,
+      verifyUser,
+      async (req, res) => {
+        const id = req.params.id;
 
-      try {
-        const property = await propertiesCollection
-          .aggregate([
-            {
-              $match: {
-                _id: new ObjectId(id),
-                verificationStatus: "approved",
+        try {
+          const property = await propertiesCollection
+            .aggregate([
+              {
+                $match: {
+                  _id: new ObjectId(id),
+                  verificationStatus: "approved",
+                },
               },
-            },
-            {
-              $lookup: {
-                from: "users",
-                localField: "agentEmail",
-                foreignField: "email",
-                as: "agentInfo",
+              {
+                $lookup: {
+                  from: "users",
+                  localField: "agentEmail",
+                  foreignField: "email",
+                  as: "agentInfo",
+                },
               },
-            },
-            {
-              $unwind: "$agentInfo",
-            },
-          ])
-          .toArray();
+              {
+                $unwind: "$agentInfo",
+              },
+            ])
+            .toArray();
 
-        if (!property || property.length === 0) {
-          return res.status(404).json({ message: "Property not found" });
+          if (!property || property.length === 0) {
+            return res.status(404).json({ message: "Property not found" });
+          }
+
+          const prop = property[0];
+
+          const formatted = {
+            ...prop,
+            mainImage: prop.mainImage
+              ? `data:image/jpeg;base64,${prop.mainImage.toString("base64")}`
+              : null,
+            agentImage: prop.agentInfo?.image || "",
+            agentName: prop.agentInfo?.name || "",
+          };
+
+          res.json(formatted);
+        } catch (error) {
+          res.status(500).json({ message: "Server error", error });
         }
-
-        const prop = property[0];
-
-        const formatted = {
-          ...prop,
-          mainImage: prop.mainImage
-            ? `data:image/jpeg;base64,${prop.mainImage.toString("base64")}`
-            : null,
-          agentImage: prop.agentInfo?.image || "",
-          agentName: prop.agentInfo?.name || "",
-        };
-
-        res.json(formatted);
-      } catch (error) {
-        res.status(500).json({ message: "Server error", error });
       }
-    });
+    );
 
     // post all reviews
     app.post("/reviews", async (req, res) => {
@@ -669,9 +687,10 @@ async function run() {
 
     // add wishlist
 
-    app.post("/wishlist", async (req, res) => {
+    app.post("/wishlist", verifyFBToken, verifyUser, async (req, res) => {
       const wishlistItem = req.body;
 
+      // Check duplicate
       const existing = await wishlistCollection.findOne({
         userEmail: wishlistItem.userEmail,
         propertyId: wishlistItem.propertyId,
@@ -683,6 +702,305 @@ async function run() {
 
       const result = await wishlistCollection.insertOne(wishlistItem);
       res.send(result);
+    });
+
+    // get wishlist
+    // GET wishlist by user email
+    app.get("/wishlist", verifyFBToken, verifyUser, async (req, res) => {
+      try {
+        const email = req.decoded.email; // safer to use token email
+
+        const wishlistItems = await wishlistCollection
+          .find({ userEmail: email })
+          .toArray();
+
+        const enrichedWishlist = await Promise.all(
+          wishlistItems.map(async (item) => {
+            const property = await propertiesCollection.findOne({
+              _id: new ObjectId(item.propertyId),
+            });
+            if (!property) return null;
+
+            const agent = await usersCollection.findOne({
+              email: property.agentEmail,
+            });
+
+            return {
+              _id: item._id,
+              propertyId: item.propertyId,
+              propertyImage: property.mainImage
+                ? `data:image/jpeg;base64,${property.mainImage.toString(
+                    "base64"
+                  )}`
+                : null,
+              title: property.title,
+              location: property.location,
+              priceRange: `${property.basePrice} - ${property.maxPrice}`,
+              verificationStatus: property.verificationStatus,
+              agentName: agent?.name || "Unknown",
+              agentImage: agent?.image || "",
+            };
+          })
+        );
+
+        // In your Express backend
+        app.delete(
+          "/wishlist/:id",
+          verifyFBToken,
+          verifyUser,
+          async (req, res) => {
+            const id = req.params.id;
+
+            try {
+              const result = await wishlistCollection.deleteOne({
+                _id: new ObjectId(id),
+              });
+
+              if (result.deletedCount > 0) {
+                return res
+                  .status(200)
+                  .json({ message: "Wishlist item removed" });
+              } else {
+                return res.status(404).json({ message: "Item not found" });
+              }
+            } catch (error) {
+              console.error(error);
+              res
+                .status(500)
+                .json({ message: "Failed to remove wishlist item" });
+            }
+          }
+        );
+
+        // 🛡️ User must be logged in (buyer making offer)
+        // app.post("/offers", verifyFBToken, verifyUser, async (req, res) => {
+        //   try {
+        //     const {
+        //       propertyId,
+        //       offerAmount,
+        //       buyingDate, // ISO string or yyyy-mm-dd
+        //     } = req.body;
+
+        //     if (!propertyId || !offerAmount || !buyingDate) {
+        //       return res
+        //         .status(400)
+        //         .json({ message: "Missing required fields." });
+        //     }
+
+        //     // Lookup property
+        //     const property = await propertiesCollection.findOne({
+        //       _id: new ObjectId(propertyId),
+        //     });
+
+        //     if (!property) {
+        //       return res.status(404).json({ message: "Property not found." });
+        //     }
+
+        //     // Optional: Only allow offers on approved properties
+        //     if (property.verificationStatus !== "approved") {
+        //       return res
+        //         .status(403)
+        //         .json({
+        //           message: "Offers allowed only on approved properties.",
+        //         });
+        //     }
+
+        //     // Validate amount using numeric fields actually stored in DB
+        //     const min = Number(property.basePrice);
+        //     const max = Number(property.maxPrice);
+        //     const amountNum = Number(offerAmount);
+
+        //     if (Number.isNaN(amountNum)) {
+        //       return res
+        //         .status(400)
+        //         .json({ message: "Offer amount must be a number." });
+        //     }
+        //     if (amountNum < min || amountNum > max) {
+        //       return res
+        //         .status(400)
+        //         .json({ message: `Offer must be between ${min} and ${max}.` });
+        //     }
+
+        //     // Grab buyer info from verified token (trust server, not client)
+        //     const buyerEmail = req.decoded.email;
+        //     const buyerUser = await usersCollection.findOne({
+        //       email: buyerEmail,
+        //     });
+
+        //     // Build safe doc
+        //     const offerDoc = {
+        //       propertyId,
+        //       propertyTitle: property.title,
+        //       propertyLocation: property.location,
+        //       agentEmail: property.agentEmail,
+        //       agentName: property.agentName ?? null, // fallback if not stored
+        //       offerAmount: amountNum,
+        //       buyerEmail,
+        //       buyerName:
+        //         buyerUser?.name || buyerUser?.displayName || buyerEmail,
+        //       buyingDate: new Date(buyingDate), // store as Date
+        //       status: "pending", // default
+        //       createdAt: new Date(),
+        //     };
+
+        //     const result = await offersCollection.insertOne(offerDoc);
+        //     return res
+        //       .status(201)
+        //       .json({ insertedId: result.insertedId, ...offerDoc });
+        //   } catch (err) {
+        //     console.error("Offer creation error:", err);
+        //     res
+        //       .status(500)
+        //       .json({ message: "Server error while posting offer." });
+        //   }
+        // });
+
+        // 🛡️ User must be logged in (buyer making offer)
+        app.post("/offers", verifyFBToken, verifyUser, async (req, res) => {
+          try {
+            const {
+              propertyId,
+              offerAmount,
+              buyingDate, // ISO string or yyyy-mm-dd
+            } = req.body;
+
+            if (!propertyId || !offerAmount || !buyingDate) {
+              return res
+                .status(400)
+                .json({ message: "Missing required fields." });
+            }
+
+            // Lookup property
+            const property = await propertiesCollection.findOne({
+              _id: new ObjectId(propertyId),
+            });
+
+            if (!property) {
+              return res.status(404).json({ message: "Property not found." });
+            }
+
+            // Optional: Only allow offers on approved properties
+            if (property.verificationStatus !== "approved") {
+              return res.status(403).json({
+                message: "Offers allowed only on approved properties.",
+              });
+            }
+
+            // Validate amount using numeric fields actually stored in DB
+            const min = Number(property.basePrice);
+            const max = Number(property.maxPrice);
+            const amountNum = Number(offerAmount);
+
+            if (Number.isNaN(amountNum)) {
+              return res
+                .status(400)
+                .json({ message: "Offer amount must be a number." });
+            }
+            if (amountNum < min || amountNum > max) {
+              return res
+                .status(400)
+                .json({ message: `Offer must be between ${min} and ${max}.` });
+            }
+
+            // Grab buyer info from verified token (trust server, not client)
+            const buyerEmail = req.decoded.email;
+            const buyerUser = await usersCollection.findOne({
+              email: buyerEmail,
+            });
+
+            // Build safe doc
+            const offerDoc = {
+              propertyId,
+              propertyTitle: property.title,
+              propertyLocation: property.location,
+              agentEmail: property.agentEmail,
+              agentName: property.agentName ?? null, // fallback if not stored
+              offerAmount: amountNum,
+              buyerEmail,
+              buyerName:
+                buyerUser?.name || buyerUser?.displayName || buyerEmail,
+              buyingDate: new Date(buyingDate), // store as Date
+              status: "pending", // default
+              createdAt: new Date(),
+            };
+
+            const result = await offersCollection.insertOne(offerDoc);
+            return res
+              .status(201)
+              .json({ insertedId: result.insertedId, ...offerDoc });
+          } catch (err) {
+            console.error("Offer creation error:", err);
+            res
+              .status(500)
+              .json({ message: "Server error while posting offer." });
+          }
+        });
+
+        res.send(enrichedWishlist.filter(Boolean));
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Failed to fetch wishlist" });
+      }
+    });
+
+    // get property offered for users
+
+    app.get("/offers/user/:email", async (req, res) => {
+      const email = req.params.email;
+      const offers = await offersCollection
+        .find({ buyerEmail: email })
+        .toArray();
+
+      const results = await Promise.all(
+        offers.map(async (offer) => {
+          const property = await propertiesCollection.findOne({
+            _id: new ObjectId(offer.propertyId),
+          });
+          const agent = await usersCollection.findOne({
+            email: offer.agentEmail,
+          });
+          return {
+            ...offer,
+            propertyTitle: property?.title,
+            propertyLocation: property?.location,
+            propertyImage: property?.mainImage,
+            agentName: agent?.name,
+            agentImage: agent?.image,
+          };
+        })
+      );
+
+      res.send(results);
+    });
+
+    // get for agents
+
+    app.get("/offers/agent/:email", async (req, res) => {
+      const email = req.params.email;
+      const offers = await offersCollection
+        .find({ agentEmail: email })
+        .toArray();
+
+      const results = await Promise.all(
+        offers.map(async (offer) => {
+          const property = await propertiesCollection.findOne({
+            _id: new ObjectId(offer.propertyId),
+          });
+          const buyer = await usersCollection.findOne({
+            email: offer.buyerEmail,
+          });
+          return {
+            ...offer,
+            propertyTitle: property?.title,
+            propertyLocation: property?.location,
+            propertyImage: property?.mainImage,
+            buyerName: buyer?.name,
+            buyerImage: buyer?.image,
+          };
+        })
+      );
+
+      res.send(results);
     });
 
     console.log("✅ MongoDB connected and users collection ready");
