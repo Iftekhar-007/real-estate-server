@@ -945,63 +945,88 @@ async function run() {
 
     // get property offered for users
 
-    app.get("/offers/bought/:email", async (req, res) => {
-      const userEmail = req.params.email;
+    // app.get("/offers/user/:email", async (req, res) => {
+    //   const email = req.params.email;
+    //   const offers = await offersCollection
+    //     .find({ buyerEmail: email })
+    //     .toArray();
 
+    //   const results = await Promise.all(
+    //     offers.map(async (offer) => {
+    //       console.log(offer);
+    //       const property = await propertiesCollection.findOne({
+    //         _id: new ObjectId(offer.propertyId),
+    //       });
+    //       const agent = await usersCollection.findOne({
+    //         email: offer.agentEmail,
+    //       });
+    //       return {
+    //         ...offer,
+    //         propertyTitle: property?.title,
+    //         propertyLocation: property?.location,
+    //         propertyImage: property?.mainImage,
+    //         agentName: agent?.name,
+    //         agentImage: agent?.image,
+    //       };
+    //     })
+    //   );
+
+    //   res.send(results);
+    // });
+
+    app.get("/offers/user/:email", async (req, res) => {
+      const email = req.params.email;
       try {
         const offers = await offersCollection
-          .aggregate([
-            {
-              $match: { buyerEmail: userEmail },
-            },
-            {
-              $lookup: {
-                from: "properties",
-                localField: "propertyId",
-                foreignField: "_id",
-                as: "propertyInfo",
-              },
-            },
-            {
-              $unwind: "$propertyInfo",
-            },
-            {
-              $lookup: {
-                from: "users",
-                localField: "propertyInfo.agentEmail",
-                foreignField: "email",
-                as: "agentInfo",
-              },
-            },
-            {
-              $unwind: "$agentInfo",
-            },
-            {
-              $addFields: {
-                propertyImage: "$propertyInfo.propertyImage",
-                propertyTitle: "$propertyInfo.title",
-                location: "$propertyInfo.location",
-                agentName: "$agentInfo.name",
-                agentImage: "$agentInfo.image",
-              },
-            },
-            {
-              $project: {
-                propertyInfo: 0,
-                agentInfo: 0,
-              },
-            },
-          ])
+          .find({ buyerEmail: email })
           .toArray();
 
-        res.send(offers);
-      } catch (error) {
-        console.log(error);
-        res.status(500).send({ message: "Failed to fetch offers" });
+        const results = await Promise.all(
+          offers.map(async (offer) => {
+            console.log("Offer propertyId:", offer.propertyId);
+            let propertyId;
+            try {
+              propertyId = new ObjectId(offer.propertyId);
+            } catch (err) {
+              console.error("Invalid ObjectId:", offer.propertyId);
+              return null; // skip this offer
+            }
+
+            const property = await propertiesCollection.findOne({
+              _id: new ObjectId(offer.propertyId),
+            });
+            console.log("property found:", property);
+
+            // ekhane boshabe
+
+            if (!property) {
+              console.warn("Property not found for id:", offer.propertyId);
+            }
+
+            const agent = await usersCollection.findOne({
+              email: offer.agentEmail,
+            });
+
+            return {
+              ...offer,
+              propertyTitle: property?.title,
+              propertyLocation: property?.location,
+              propertyImage: property?.mainImage,
+              agentName: agent?.name,
+              agentImage: agent?.image,
+            };
+          })
+        );
+
+        // Remove nulls if any offers skipped
+        res.send(results.filter(Boolean));
+      } catch (err) {
+        console.error(err);
+        res.status(500).send({ message: "Error fetching offers" });
       }
     });
 
-    // get for agents
+    //  for agents
 
     app.get("/offers/agent/:email", async (req, res) => {
       const email = req.params.email;
