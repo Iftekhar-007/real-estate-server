@@ -648,6 +648,24 @@ async function run() {
       }
     });
 
+    // post all reviews
+    app.post("/reviews", async (req, res) => {
+      const review = req.body;
+      const result = await reviewsCollection.insertOne(review);
+      res.send(result);
+    });
+
+    // get property review by property id
+
+    app.get("/reviews/:propertyId", async (req, res) => {
+      const propertyId = req.params.propertyId;
+      const result = await reviewsCollection
+        .find({ propertyId: propertyId })
+        .sort({ createdAt: -1 }) // latest first
+        .toArray();
+      res.send(result);
+    });
+
     console.log("✅ MongoDB connected and users collection ready");
   } catch (err) {
     console.error("Mongo error:", err);
