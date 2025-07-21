@@ -30,7 +30,8 @@ app.use(
     credentials: true, // allow cookies/headers
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true, limit: "5mb" }));
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
@@ -663,6 +664,24 @@ async function run() {
         .find({ propertyId: propertyId })
         .sort({ createdAt: -1 }) // latest first
         .toArray();
+      res.send(result);
+    });
+
+    // add wishlist
+
+    app.post("/wishlist", async (req, res) => {
+      const wishlistItem = req.body;
+
+      const existing = await wishlistCollection.findOne({
+        userEmail: wishlistItem.userEmail,
+        propertyId: wishlistItem.propertyId,
+      });
+
+      if (existing) {
+        return res.status(409).send({ message: "Already in wishlist" });
+      }
+
+      const result = await wishlistCollection.insertOne(wishlistItem);
       res.send(result);
     });
 
