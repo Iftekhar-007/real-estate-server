@@ -945,32 +945,60 @@ async function run() {
 
     // get property offered for users
 
-    app.get("/offers/user/:email", async (req, res) => {
-      const email = req.params.email;
-      const offers = await offersCollection
-        .find({ buyerEmail: email })
-        .toArray();
+    app.get("/offers/bought/:email", async (req, res) => {
+      const userEmail = req.params.email;
 
-      const results = await Promise.all(
-        offers.map(async (offer) => {
-          const property = await propertiesCollection.findOne({
-            _id: new ObjectId(offer.propertyId),
-          });
-          const agent = await usersCollection.findOne({
-            email: offer.agentEmail,
-          });
-          return {
-            ...offer,
-            propertyTitle: property?.title,
-            propertyLocation: property?.location,
-            propertyImage: property?.mainImage,
-            agentName: agent?.name,
-            agentImage: agent?.image,
-          };
-        })
-      );
+      try {
+        const offers = await offersCollection
+          .aggregate([
+            {
+              $match: { buyerEmail: userEmail },
+            },
+            {
+              $lookup: {
+                from: "properties",
+                localField: "propertyId",
+                foreignField: "_id",
+                as: "propertyInfo",
+              },
+            },
+            {
+              $unwind: "$propertyInfo",
+            },
+            {
+              $lookup: {
+                from: "users",
+                localField: "propertyInfo.agentEmail",
+                foreignField: "email",
+                as: "agentInfo",
+              },
+            },
+            {
+              $unwind: "$agentInfo",
+            },
+            {
+              $addFields: {
+                propertyImage: "$propertyInfo.propertyImage",
+                propertyTitle: "$propertyInfo.title",
+                location: "$propertyInfo.location",
+                agentName: "$agentInfo.name",
+                agentImage: "$agentInfo.image",
+              },
+            },
+            {
+              $project: {
+                propertyInfo: 0,
+                agentInfo: 0,
+              },
+            },
+          ])
+          .toArray();
 
-      res.send(results);
+        res.send(offers);
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Failed to fetch offers" });
+      }
     });
 
     // get for agents
