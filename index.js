@@ -70,6 +70,7 @@ async function run() {
     const verifyFBToken = async (req, res, next) => {
       const token = req.headers.authorization?.split(" ")[1];
       if (!token) return res.status(401).send("Unauthorized");
+      // console.log(token);
 
       try {
         const decoded = await admin.auth().verifyIdToken(token);
@@ -136,7 +137,7 @@ async function run() {
       }
 
       if (user.role !== "user") {
-        return res.status(403).json({ message: "Forbidden: Admins only" });
+        return res.status(403).json({ message: "Forbidden: users only" });
       }
 
       next();
@@ -261,7 +262,7 @@ async function run() {
       const id = req.params.id;
       const user = await usersCollection.findOne({ _id: new ObjectId(id) });
       if (!user) return res.status(404).send({ message: "User not found" });
-      console.log("Received DELETE request for ID:", req.params.id);
+      // console.log("Received DELETE request for ID:", req.params.id);
 
       await usersCollection.deleteOne({ _id: new ObjectId(id) });
 
@@ -636,7 +637,7 @@ async function run() {
     );
 
     // post all reviews
-    app.post("/reviews", verifyFBToken, verifyUser, async (req, res) => {
+    app.post("/reviews", verifyFBToken, async (req, res) => {
       const review = req.body;
       const result = await reviewsCollection.insertOne(review);
       res.send(result);
@@ -854,7 +855,7 @@ async function run() {
 
           const results = await Promise.all(
             offers.map(async (offer) => {
-              console.log("Offer propertyId:", offer.propertyId);
+              // console.log("Offer propertyId:", offer.propertyId);
               let propertyId;
               try {
                 propertyId = new ObjectId(offer.propertyId);
@@ -866,7 +867,7 @@ async function run() {
               const property = await propertiesCollection.findOne({
                 _id: new ObjectId(offer.propertyId),
               });
-              console.log("property found:", property);
+              // console.log("property found:", property);
 
               // ekhane boshabe
 
@@ -899,7 +900,7 @@ async function run() {
     );
 
     // GET /offers/check?propertyId=xyz
-    app.get("/offers/check", verifyFBToken, verifyUser, async (req, res) => {
+    app.get("/offers/check", verifyFBToken, async (req, res) => {
       const propertyId = req.query.propertyId;
       const buyerEmail = req.decoded.email;
 
