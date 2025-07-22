@@ -227,6 +227,18 @@ async function run() {
       res.send({ message: "User is now agent", updated: userUpdate });
     });
 
+    // get agent
+
+    app.get("/agents", async (req, res) => {
+      try {
+        const agents = await agentsCollection.find().toArray();
+        res.send(agents);
+      } catch (err) {
+        console.error("Failed to fetch agents:", err);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
     // get role by email
 
     // Middleware: verifyFBToken must be already setup
