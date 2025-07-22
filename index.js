@@ -8,6 +8,8 @@ const dotenv = require("dotenv");
 dotenv.config();
 // require("dotenv").config();
 
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -999,6 +1001,134 @@ async function run() {
         }
       }
     );
+
+    // get stripe post
+
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+
+      const amount = price * 100; // Stripe expects amount in cents
+
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+    app.get("/offers/:id", async (req, res) => {
+      const offerId = req.params.id;
+      try {
+        const offer = await offersCollection.findOne({
+          _id: new ObjectId(offerId),
+        });
+        if (!offer) return res.status(404).json({ message: "Offer not found" });
+        res.json(offer);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    app.patch("/offers/payment-success/:id", async (req, res) => {
+      const offerId = req.params.id;
+      const { trxId, paymentStatus } = req.body;
+
+      try {
+        const offer = await offersCollection.findOne({
+          _id: new ObjectId(offerId),
+        });
+        if (!offer) return res.status(404).json({ message: "Offer not found" });
+
+        // Update offer status and save transaction ID
+        await offersCollection.updateOne(
+          { _id: new ObjectId(offerId) },
+          { $set: { status: paymentStatus, transactionId: trxId } }
+        );
+
+        // Optional: Also update property status to "sold" to prevent further offers
+        await propertiesCollection.updateOne(
+          { _id: new ObjectId(offer.propertyId) },
+          { $set: { status: "sold" } }
+        );
+
+        res.json({ message: "Payment success updated" });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    // GET: /sold-properties/:agentEmail
+    app.get("/sold-properties/:agentEmail", async (req, res) => {
+      const agentEmail = req.params.agentEmail;
+
+      try {
+        // Step 1: Find all offers where status is "bought" and agentEmail matches
+        const soldOffers = await offersCollection
+          .find({
+            agentEmail: agentEmail,
+            status: "bought",
+          })
+          .toArray();
+
+        if (soldOffers.length === 0) {
+          return res.json([]);
+        }
+
+        // Step 2: Populate extra info from properties collection
+        const propertyIds = soldOffers.map(
+          (offer) => new ObjectId(offer.propertyId)
+        );
+        const properties = await propertiesCollection
+          .find({ _id: { $in: propertyIds } })
+          .toArray();
+
+        // Step 3: Combine data and return
+        const result = soldOffers.map((offer) => {
+          const matchedProperty = properties.find(
+            (prop) => prop._id.toString() === offer.propertyId
+          );
+
+          return {
+            propertyTitle: matchedProperty?.title || "N/A",
+            propertyLocation: matchedProperty?.location || "N/A",
+            buyerEmail: offer.buyerEmail,
+            buyerName: offer.buyerName,
+            soldPrice: offer.offerAmount,
+          };
+        });
+
+        res.json(result);
+      } catch (error) {
+        console.error(error);
+        res
+          .status(500)
+          .json({ message: "Server error fetching sold properties" });
+      }
+    });
+
+    // Route: GET /offers/property-status/:propertyId
+    app.get("/offers/property-status/:propertyId", async (req, res) => {
+      const propertyId = req.params.propertyId;
+      const boughtOffer = await offersCollection.findOne({
+        propertyId,
+        status: "bought",
+      });
+
+      if (boughtOffer) {
+        return res.send({ isBought: true });
+      }
+      res.send({ isBought: false });
+    });
 
     console.log("✅ MongoDB connected and users collection ready");
   } catch (err) {
