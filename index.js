@@ -61,6 +61,7 @@ async function run() {
     const wishlistCollection = database.collection("wishlist");
     const reviewsCollection = database.collection("reviews");
     const offersCollection = database.collection("offers");
+    // const purchasedCollection = database.collection("purcahses");
 
     // verifyFB Token
 
@@ -242,7 +243,7 @@ async function run() {
     });
 
     // DELETE user
-    app.delete("/users/:id", verifyFBToken, async (req, res) => {
+    app.delete("/users/:id", verifyFBToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const user = await usersCollection.findOne({ _id: new ObjectId(id) });
       if (!user) return res.status(404).send({ message: "User not found" });
@@ -310,16 +311,6 @@ async function run() {
       }
     );
 
-    // app.get("/properties", async (req, res) => {
-    //   try {
-    //     const properties = await propertiesCollection.find({}).toArray();
-    //     res.status(200).json(properties);
-    //   } catch (error) {
-    //     console.error("Error fetching properties:", error);
-    //     res.status(500).json({ message: "Server error fetching properties" });
-    //   }
-    // });
-
     //  get properties
     app.get("/properties", verifyFBToken, verifyAdmin, async (req, res) => {
       try {
@@ -379,36 +370,6 @@ async function run() {
     });
 
     // 🛡️ Protected Route: Get properties added by the logged-in agent
-    // app.get("/my-properties", verifyFBToken, async (req, res) => {
-    //   try {
-    //     const email = req.decoded.email; // 👈 Comes from Firebase Auth token
-
-    //     // 1. Get the agent's image from usersCollection
-    //     const user = await usersCollection.findOne({ email });
-
-    //     if (!user) {
-    //       return res.status(404).send({ message: "Agent not found" });
-    //     }
-
-    //     const agentImage = user.photoURL || user.image || null;
-
-    //     // 2. Get all properties added by this agent
-    //     const agentProperties = await propertiesCollection
-    //       .find({ agentEmail: email })
-    //       .toArray();
-
-    //     // 3. Attach agent image to each property
-    //     const propertiesWithImage = agentProperties.map((property) => ({
-    //       ...property,
-    //       agentPhoto: agentImage, // add the image from user collection
-    //     }));
-
-    //     res.send(propertiesWithImage);
-    //   } catch (err) {
-    //     console.error("Error in /my-properties:", err);
-    //     res.status(500).send({ error: "Something went wrong" });
-    //   }
-    // });
 
     // GET /my-properties : Return properties added by logged-in agent
     app.get("/my-properties", verifyFBToken, verifyAgent, async (req, res) => {
@@ -482,14 +443,7 @@ async function run() {
       }
     });
 
-    // GET one property
-    // app.get("/properties/:id", async (req, res) => {
-    //   const id = new ObjectId(req.params.id);
-    //   const result = await propertiesCollection.findOne({ _id: id });
-    //   res.send(result);
-    // });
-
-    app.get("/properties/:id", async (req, res) => {
+    app.get("/properties/:id", verifyFBToken, async (req, res) => {
       const id = new ObjectId(req.params.id);
       const result = await propertiesCollection.findOne({ _id: id });
       console.log("Property fetched:", result); // add this debug line
@@ -668,7 +622,7 @@ async function run() {
     );
 
     // post all reviews
-    app.post("/reviews", async (req, res) => {
+    app.post("/reviews", verifyFBToken, verifyUser, async (req, res) => {
       const review = req.body;
       const result = await reviewsCollection.insertOne(review);
       res.send(result);
@@ -676,7 +630,7 @@ async function run() {
 
     // get property review by property id
 
-    app.get("/reviews/:propertyId", async (req, res) => {
+    app.get("/reviews/:propertyId", verifyFBToken, async (req, res) => {
       const propertyId = req.params.propertyId;
       const result = await reviewsCollection
         .find({ propertyId: propertyId })
@@ -704,7 +658,6 @@ async function run() {
       res.send(result);
     });
 
-    // get wishlist
     // GET wishlist by user email
     app.get("/wishlist", verifyFBToken, verifyUser, async (req, res) => {
       try {
@@ -729,7 +682,7 @@ async function run() {
               _id: item._id,
               propertyId: item.propertyId,
               propertyImage: property.mainImage
-                ? `data:image/jpeg;base64,${property.mainImage.toString(
+                ? `data:image/webp;base64,${property.mainImage.toString(
                     "base64"
                   )}`
                 : null,
@@ -771,89 +724,6 @@ async function run() {
             }
           }
         );
-
-        // 🛡️ User must be logged in (buyer making offer)
-        // app.post("/offers", verifyFBToken, verifyUser, async (req, res) => {
-        //   try {
-        //     const {
-        //       propertyId,
-        //       offerAmount,
-        //       buyingDate, // ISO string or yyyy-mm-dd
-        //     } = req.body;
-
-        //     if (!propertyId || !offerAmount || !buyingDate) {
-        //       return res
-        //         .status(400)
-        //         .json({ message: "Missing required fields." });
-        //     }
-
-        //     // Lookup property
-        //     const property = await propertiesCollection.findOne({
-        //       _id: new ObjectId(propertyId),
-        //     });
-
-        //     if (!property) {
-        //       return res.status(404).json({ message: "Property not found." });
-        //     }
-
-        //     // Optional: Only allow offers on approved properties
-        //     if (property.verificationStatus !== "approved") {
-        //       return res
-        //         .status(403)
-        //         .json({
-        //           message: "Offers allowed only on approved properties.",
-        //         });
-        //     }
-
-        //     // Validate amount using numeric fields actually stored in DB
-        //     const min = Number(property.basePrice);
-        //     const max = Number(property.maxPrice);
-        //     const amountNum = Number(offerAmount);
-
-        //     if (Number.isNaN(amountNum)) {
-        //       return res
-        //         .status(400)
-        //         .json({ message: "Offer amount must be a number." });
-        //     }
-        //     if (amountNum < min || amountNum > max) {
-        //       return res
-        //         .status(400)
-        //         .json({ message: `Offer must be between ${min} and ${max}.` });
-        //     }
-
-        //     // Grab buyer info from verified token (trust server, not client)
-        //     const buyerEmail = req.decoded.email;
-        //     const buyerUser = await usersCollection.findOne({
-        //       email: buyerEmail,
-        //     });
-
-        //     // Build safe doc
-        //     const offerDoc = {
-        //       propertyId,
-        //       propertyTitle: property.title,
-        //       propertyLocation: property.location,
-        //       agentEmail: property.agentEmail,
-        //       agentName: property.agentName ?? null, // fallback if not stored
-        //       offerAmount: amountNum,
-        //       buyerEmail,
-        //       buyerName:
-        //         buyerUser?.name || buyerUser?.displayName || buyerEmail,
-        //       buyingDate: new Date(buyingDate), // store as Date
-        //       status: "pending", // default
-        //       createdAt: new Date(),
-        //     };
-
-        //     const result = await offersCollection.insertOne(offerDoc);
-        //     return res
-        //       .status(201)
-        //       .json({ insertedId: result.insertedId, ...offerDoc });
-        //   } catch (err) {
-        //     console.error("Offer creation error:", err);
-        //     res
-        //       .status(500)
-        //       .json({ message: "Server error while posting offer." });
-        //   }
-        // });
 
         // 🛡️ User must be logged in (buyer making offer)
         app.post("/offers", verifyFBToken, verifyUser, async (req, res) => {
@@ -908,6 +778,18 @@ async function run() {
               email: buyerEmail,
             });
 
+            // ✅ Before inserting new offer
+            const existingOffer = await offersCollection.findOne({
+              propertyId,
+              buyerEmail,
+            });
+
+            if (existingOffer) {
+              return res.status(409).json({
+                message: "You have already made an offer for this property.",
+              });
+            }
+
             // Build safe doc
             const offerDoc = {
               propertyId,
@@ -945,129 +827,183 @@ async function run() {
 
     // get property offered for users
 
-    // app.get("/offers/user/:email", async (req, res) => {
-    //   const email = req.params.email;
-    //   const offers = await offersCollection
-    //     .find({ buyerEmail: email })
-    //     .toArray();
+    app.get(
+      "/offers/user/:email",
+      verifyFBToken,
+      verifyUser,
+      async (req, res) => {
+        const email = req.params.email;
+        try {
+          const offers = await offersCollection
+            .find({ buyerEmail: email })
+            .toArray();
 
-    //   const results = await Promise.all(
-    //     offers.map(async (offer) => {
-    //       console.log(offer);
-    //       const property = await propertiesCollection.findOne({
-    //         _id: new ObjectId(offer.propertyId),
-    //       });
-    //       const agent = await usersCollection.findOne({
-    //         email: offer.agentEmail,
-    //       });
-    //       return {
-    //         ...offer,
-    //         propertyTitle: property?.title,
-    //         propertyLocation: property?.location,
-    //         propertyImage: property?.mainImage,
-    //         agentName: agent?.name,
-    //         agentImage: agent?.image,
-    //       };
-    //     })
-    //   );
+          const results = await Promise.all(
+            offers.map(async (offer) => {
+              console.log("Offer propertyId:", offer.propertyId);
+              let propertyId;
+              try {
+                propertyId = new ObjectId(offer.propertyId);
+              } catch (err) {
+                console.error("Invalid ObjectId:", offer.propertyId);
+                return null; // skip this offer
+              }
 
-    //   res.send(results);
-    // });
+              const property = await propertiesCollection.findOne({
+                _id: new ObjectId(offer.propertyId),
+              });
+              console.log("property found:", property);
 
-    app.get("/offers/user/:email", async (req, res) => {
-      const email = req.params.email;
-      try {
-        const offers = await offersCollection
-          .find({ buyerEmail: email })
-          .toArray();
+              // ekhane boshabe
 
-        const results = await Promise.all(
-          offers.map(async (offer) => {
-            console.log("Offer propertyId:", offer.propertyId);
-            let propertyId;
-            try {
-              propertyId = new ObjectId(offer.propertyId);
-            } catch (err) {
-              console.error("Invalid ObjectId:", offer.propertyId);
-              return null; // skip this offer
-            }
+              if (!property) {
+                console.warn("Property not found for id:", offer.propertyId);
+              }
 
-            const property = await propertiesCollection.findOne({
-              _id: new ObjectId(offer.propertyId),
-            });
-            console.log("property found:", property);
+              const agent = await usersCollection.findOne({
+                email: offer.agentEmail,
+              });
 
-            // ekhane boshabe
+              return {
+                ...offer,
+                propertyTitle: property?.title,
+                propertyLocation: property?.location,
+                propertyImage: property?.mainImage,
+                agentName: agent?.name,
+                agentImage: agent?.image,
+              };
+            })
+          );
 
-            if (!property) {
-              console.warn("Property not found for id:", offer.propertyId);
-            }
+          // Remove nulls if any offers skipped
+          res.send(results.filter(Boolean));
+        } catch (err) {
+          console.error(err);
+          res.status(500).send({ message: "Error fetching offers" });
+        }
+      }
+    );
 
-            const agent = await usersCollection.findOne({
-              email: offer.agentEmail,
-            });
+    // GET /offers/check?propertyId=xyz
+    app.get("/offers/check", verifyFBToken, verifyUser, async (req, res) => {
+      const propertyId = req.query.propertyId;
+      const buyerEmail = req.decoded.email;
 
+      const exists = await offersCollection.findOne({
+        propertyId,
+        buyerEmail,
+      });
+
+      res.send({ exists: !!exists });
+    });
+
+    // GET all offers for a specific agent's properties
+    app.get(
+      "/offers/agent/:email",
+      verifyFBToken,
+      verifyAgent,
+      async (req, res) => {
+        const agentEmail = req.params.email;
+
+        try {
+          const properties = await propertiesCollection
+            .find({ agentEmail: new RegExp(`^${agentEmail}$`, "i") })
+            .project({ _id: 1, title: 1, location: 1 })
+            .toArray();
+
+          const stringIds = properties.map((p) => p._id.toString());
+
+          if (stringIds.length === 0) {
+            return res.send([]);
+          }
+
+          const offers = await offersCollection
+            .find({ propertyId: { $in: stringIds } }) // <-- Ensure propertyId is stored as string
+            .toArray();
+
+          const enrichedOffers = offers.map((offer) => {
+            const property = properties.find(
+              (p) => p._id.toString() === offer.propertyId
+            );
             return {
               ...offer,
               propertyTitle: property?.title,
               propertyLocation: property?.location,
-              propertyImage: property?.mainImage,
-              agentName: agent?.name,
-              agentImage: agent?.image,
             };
-          })
+          });
+
+          res.send(enrichedOffers);
+        } catch (err) {
+          console.error(err);
+          res.status(500).send({ message: "Something went wrong" });
+        }
+      }
+    );
+
+    // for accept
+    app.patch("/offers/accept/:id", async (req, res) => {
+      const offerId = req.params.id;
+
+      try {
+        // 1. Find the offer
+        const selectedOffer = await offersCollection.findOne({
+          _id: new ObjectId(offerId),
+        });
+
+        if (!selectedOffer) {
+          return res.status(404).send({ error: "Offer not found" });
+        }
+
+        const propertyId = selectedOffer.propertyId;
+
+        // 2. Accept selected offer
+        await offersCollection.updateOne(
+          { _id: new ObjectId(offerId) },
+          { $set: { status: "accepted" } }
         );
 
-        // Remove nulls if any offers skipped
-        res.send(results.filter(Boolean));
+        // 3. Reject all other offers for same property
+        await offersCollection.updateMany(
+          {
+            propertyId: propertyId,
+            _id: { $ne: new ObjectId(offerId) },
+          },
+          { $set: { status: "rejected" } }
+        );
+
+        res.send({ message: "Offer accepted and others rejected." });
       } catch (err) {
-        console.error(err);
-        res.status(500).send({ message: "Error fetching offers" });
+        console.error("Error accepting offer:", err);
+        res.status(500).send({ error: "Server error" });
       }
     });
 
-    //  for agents
+    // for reject
 
-    app.get("/offers/agent/:email", async (req, res) => {
-      const email = req.params.email;
-      const offers = await offersCollection
-        .find({ agentEmail: email })
-        .toArray();
+    app.patch(
+      "/offers/reject/:id",
 
-      const results = await Promise.all(
-        offers.map(async (offer) => {
-          const property = await propertiesCollection.findOne({
-            _id: new ObjectId(offer.propertyId),
-          });
-          const buyer = await usersCollection.findOne({
-            email: offer.buyerEmail,
-          });
-          return {
-            ...offer,
-            propertyTitle: property?.title,
-            propertyLocation: property?.location,
-            propertyImage: property?.mainImage,
-            buyerName: buyer?.name,
-            buyerImage: buyer?.image,
-          };
-        })
-      );
+      async (req, res) => {
+        const offerId = req.params.id;
 
-      res.send(results);
-    });
+        try {
+          const result = await offersCollection.updateOne(
+            { _id: new ObjectId(offerId) },
+            { $set: { status: "rejected" } }
+          );
+
+          res.send({ message: "Offer rejected" });
+        } catch (err) {
+          console.error("Error rejecting offer:", err);
+          res.status(500).send({ error: "Server error" });
+        }
+      }
+    );
 
     console.log("✅ MongoDB connected and users collection ready");
   } catch (err) {
     console.error("Mongo error:", err);
-
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
   }
 }
 run().catch(console.dir);
