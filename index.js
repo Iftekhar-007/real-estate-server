@@ -28,7 +28,7 @@ admin.initializeApp({
 
 app.use(
   cors({
-    origin: "http://localhost:5173", // frontend URL
+    origin: "https://real-estate-8f8a4-e2699.web.app", // frontend URL
     credentials: true, // allow cookies/headers
   })
 );
@@ -47,6 +47,33 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+let database; // keep the reference of database
+
+async function connectToDB() {
+  try {
+    await client.connect();
+    database = client.db("realestate");
+    console.log("✅ Connected to MongoDB");
+  } catch (error) {
+    console.error("❌ DB Connection Failed", error);
+  }
+}
+
+// return specific collections through getter functions
+function getPropertiesCollection() {
+  return database.collection("properties");
+}
+
+function getUsersCollection() {
+  return database.collection("users");
+}
+
+module.exports = {
+  connectToDB,
+  getPropertiesCollection,
+  getUsersCollection,
+};
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -163,7 +190,7 @@ async function run() {
     });
 
     // ✅ GET: Single user by email (optional, useful for role)
-    app.get("/users/:email", verifyFBToken, async (req, res) => {
+    app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       if (!user) {
@@ -354,6 +381,45 @@ async function run() {
         }
       }
     );
+
+    // for advertise
+
+    // PUT: Update property as advertised
+    app.put(
+      "/properties/advertise/:id",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const result = await propertiesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { advertised: true } }
+        );
+        console.log("Advertise update result:", result);
+
+        res.send(result);
+      }
+    );
+
+    // get advertised data
+
+    app.get("/properties/advertised", async (req, res) => {
+      const properties = await propertiesCollection
+        .find({ advertised: true, verificationStatus: "approved" }) // <-- filter here
+        .limit(6)
+        .toArray();
+
+      // Convert binary to base64 string
+      const updated = properties.map((property) => {
+        if (property.mainImage && property.mainImage.buffer) {
+          const base64Image = property.mainImage.buffer.toString("base64");
+          property.mainImage = `data:image/jpeg;base64,${base64Image}`;
+        }
+        return property;
+      });
+
+      res.send(updated);
+    });
 
     //  get properties
     app.get("/properties", verifyFBToken, verifyAdmin, async (req, res) => {
@@ -616,7 +682,7 @@ async function run() {
     app.get(
       "/properties/details/:id",
       verifyFBToken,
-      verifyUser,
+
       async (req, res) => {
         const id = req.params.id;
 
