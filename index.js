@@ -20,7 +20,13 @@ const upload = multerUpload.fields([{ name: "mainImage", maxCount: 1 }]);
 
 var admin = require("firebase-admin");
 
-var serviceAccount = require("./FB_TOKEN.json");
+// console.log("value going to Buffer.from():");
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
+
+var serviceAccount = JSON.parse(decoded);
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
