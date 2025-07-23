@@ -228,6 +228,35 @@ async function run() {
       res.send({ message: "User is now agent", updated: userUpdate });
     });
 
+    // fraud
+
+    app.patch("/users/mark-fraud/:id", async (req, res) => {
+      const { id } = req.params;
+
+      const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+      if (!user || user.role !== "agent") {
+        return res
+          .status(400)
+          .send({ message: "Only agents can be marked as fraud." });
+      }
+
+      // 1. Update role to fraud
+      await usersCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { role: "fraud" } }
+      );
+
+      // 2. Remove all properties added by this agent
+      const deleted = await propertiesCollection.deleteMany({
+        agentEmail: user.email,
+      });
+
+      res.send({
+        message: "Agent marked as fraud",
+        propertiesRemoved: deleted.deletedCount,
+      });
+    });
+
     // get agent
 
     app.get("/agents", async (req, res) => {
