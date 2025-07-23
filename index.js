@@ -1,11 +1,11 @@
+const dotenv = require("dotenv");
+
+dotenv.config();
 const express = require("express");
 const cors = require("cors");
 
 const multer = require("multer");
 
-const dotenv = require("dotenv");
-
-dotenv.config();
 // require("dotenv").config();
 
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
@@ -54,36 +54,16 @@ const client = new MongoClient(uri, {
   },
 });
 
-let database; // keep the reference of database
-
-async function connectToDB() {
-  try {
-    await client.connect();
-    database = client.db("realestate");
-    console.log("✅ Connected to MongoDB");
-  } catch (error) {
-    console.error("❌ DB Connection Failed", error);
-  }
-}
-
-// return specific collections through getter functions
-function getPropertiesCollection() {
-  return database.collection("properties");
-}
-
-function getUsersCollection() {
-  return database.collection("users");
-}
-
-module.exports = {
-  connectToDB,
-  getPropertiesCollection,
-  getUsersCollection,
-};
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
+
+    // MongoDB connected etc...
+    await connectToDB();
+
+    // ✅ এখন call করো, আগে কখনো না
+    await addAdvertisedField();
 
     //   console.log("mongodb connected");
     const database = client.db("realestate");
