@@ -34,7 +34,7 @@ admin.initializeApp({
 
 app.use(
   cors({
-    origin: "https://real-estate-8f8a4-e2699.web.app", // frontend URL
+    origin: "https://real-estate-8f8a4-e2699.web.app/", // frontend URL
     credentials: true, // allow cookies/headers
   })
 );
@@ -54,16 +54,34 @@ const client = new MongoClient(uri, {
   },
 });
 
+let usersCollection;
+let propertiesCollection;
+
+async function connectToDB() {
+  await client.connect();
+  const db = client.db("realestate");
+  usersCollection = db.collection("users");
+  propertiesCollection = db.collection("properties");
+  console.log("✅ Mongo connected");
+}
+
+function getUsersCollection() {
+  return usersCollection;
+}
+
+function getPropertiesCollection() {
+  return propertiesCollection;
+}
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
 
     // MongoDB connected etc...
-    await connectToDB();
+    // await connectToDB();
 
-    // ✅ এখন call করো, আগে কখনো না
-    await addAdvertisedField();
+    // index.js এর ভিতরে run() এর ভিতর লিখে দাও:
 
     //   console.log("mongodb connected");
     const database = client.db("realestate");
