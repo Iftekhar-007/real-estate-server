@@ -643,6 +643,24 @@ async function run() {
       res.send(result);
     });
 
+    // get latest reviews
+
+    // Server-side (Express)
+    // In your Express backend
+    app.get("/reviews/all", async (req, res) => {
+      try {
+        const allReviews = await reviewsCollection
+          .find({})
+          .sort({ reviewTime: -1 })
+          .toArray();
+        res.send(allReviews);
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch all reviews", error: err });
+      }
+    });
+
     // get property review by property id
 
     app.get("/reviews/:propertyId", verifyFBToken, async (req, res) => {
@@ -652,6 +670,106 @@ async function run() {
         .sort({ createdAt: -1 }) // latest first
         .toArray();
       res.send(result);
+    });
+
+    // get all reviews for admin
+
+    // Example: GET /reviews (admin only)
+    app.get("/reviews", verifyFBToken, async (req, res) => {
+      try {
+        const result = await reviewsCollection.find().toArray();
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: "Error fetching reviews", error: err });
+      }
+    });
+
+    // get review by user email
+
+    // Example: GET /reviews/user/:email (user only)
+    // const { ObjectId } = require("mongodb");
+
+    app.get("/reviews/user/:email", verifyFBToken, async (req, res) => {
+      const email = req.params.email;
+
+      if (req.decoded.email !== email) {
+        return res.status(403).send({ message: "Unauthorized access" });
+      }
+
+      try {
+        const result = await reviewsCollection
+          .aggregate([
+            {
+              $match: { reviewerEmail: email },
+            },
+            {
+              $addFields: {
+                propertyObjId: {
+                  $convert: {
+                    input: "$propertyId",
+                    to: "objectId",
+                    onError: null,
+                    onNull: null,
+                  },
+                },
+              },
+            },
+            {
+              $lookup: {
+                from: "properties",
+                localField: "propertyObjId",
+                foreignField: "_id",
+                as: "propertyData",
+              },
+            },
+            {
+              $unwind: {
+                path: "$propertyData",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $project: {
+                comment: 1,
+                propertyTitle: 1,
+                reviewTime: 1,
+                agentName: "$propertyData.agentName",
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(result);
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Error joining review with property", error: err });
+      }
+    });
+
+    // delete revieww
+
+    // DELETE a review by ID (User only)
+    app.delete("/reviews/:id", verifyFBToken, async (req, res) => {
+      const id = req.params.id;
+
+      try {
+        const result = await reviewsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount > 0) {
+          res.send({ success: true, message: "Review deleted successfully" });
+        } else {
+          res.status(404).send({ success: false, message: "Review not found" });
+        }
+      } catch (err) {
+        res.status(500).send({
+          success: false,
+          message: "Error deleting review",
+          error: err,
+        });
+      }
     });
 
     // add wishlist
