@@ -1,3 +1,4 @@
 node_modules
 .env
 FB_TOKEN.json
+.vercel
