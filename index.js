@@ -679,6 +679,7 @@ async function run() {
                 mainImage: 1,
                 agentName: "$agentInfo.name",
                 agentPhoto: "$agentInfo.image",
+                createdAt: 1,
               },
             },
           ])
