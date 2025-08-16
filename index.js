@@ -13,6 +13,18 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 5000;
 
+// app.use(
+//   cors({
+//     origin: [
+//       "http://localhost:5173",
+//       "https://real-estate-8f8a4-e2699.web.app",
+//     ], // frontend URL
+//     credentials: true, // allow cookies/headers
+//   })
+// );
+// app.use(express.json({ limit: "5mb" }));
+// app.use(express.urlencoded({ extended: true, limit: "5mb" }));
+
 // Multer setup
 const storage = multer.memoryStorage();
 const multerUpload = multer({ storage }); // Call multer() properly
@@ -32,9 +44,19 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 
+// {
+//     origin: "https://real-estate-8f8a4-e2699.web.app", // frontend URL
+//     credentials: true, // allow cookies/headers
+//   }
+
+// app.use(cors());
+
 app.use(
   cors({
-    origin: "https://real-estate-8f8a4-e2699.web.app", // frontend URL
+    origin: [
+      "http://localhost:5173",
+      "https://real-estate-8f8a4-e2699.web.app",
+    ], // frontend URL
     credentials: true, // allow cookies/headers
   })
 );
@@ -77,11 +99,6 @@ async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
     // await client.connect();
-
-    // MongoDB connected etc...
-    // await connectToDB();
-
-    // index.js এর ভিতরে run() এর ভিতর লিখে দাও:
 
     //   console.log("mongodb connected");
     const database = client.db("realestate");
