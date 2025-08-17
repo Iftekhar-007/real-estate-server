@@ -53,10 +53,7 @@ admin.initializeApp({
 
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "https://real-estate-8f8a4-e2699.web.app",
-    ], // frontend URL
+    origin: "https://real-estate-8f8a4-e2699.web.app", // frontend URL
     credentials: true, // allow cookies/headers
   })
 );
