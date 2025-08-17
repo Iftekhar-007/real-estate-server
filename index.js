@@ -651,7 +651,7 @@ async function run() {
     });
 
     // Get all verified properties (for all users)
-    app.get("/all-properties", verifyFBToken, async (req, res) => {
+    app.get("/all-properties", async (req, res) => {
       try {
         const properties = await propertiesCollection
           .aggregate([
@@ -1377,6 +1377,94 @@ async function run() {
       }
       res.send({ isBought: false });
     });
+
+    // get user stats
+
+    app.get("/dashboard/user/:email", verifyFBToken, async (req, res) => {
+      const email = req.params.email;
+
+      try {
+        const reviewCount = await reviewsCollection.countDocuments({
+          reviewerEmail: email,
+        });
+        const wishlistCount = await wishlistCollection.countDocuments({
+          userEmail: email,
+        });
+        const offersCount = await offersCollection.countDocuments({
+          buyerEmail: email,
+          status: "pending",
+        });
+        const boughtCount = await offersCollection.countDocuments({
+          buyerEmail: email,
+          status: "bought",
+        });
+
+        res.send({ reviewCount, wishlistCount, offersCount, boughtCount });
+      } catch (err) {
+        res
+          .status(500)
+          .send({ message: "Error fetching user stats", error: err });
+      }
+    });
+
+    // get agents stats
+
+    app.get(
+      "/dashboard/agent/:email",
+      verifyFBToken,
+      verifyAgent,
+      async (req, res) => {
+        const email = req.params.email;
+
+        try {
+          const propertyCount = await propertiesCollection.countDocuments({
+            agentEmail: email,
+          });
+          const soldCount = await propertiesCollection.countDocuments({
+            agentEmail: email,
+            status: "sold",
+          });
+          const offersCount = await offersCollection.countDocuments({
+            agentEmail: email,
+          });
+
+          res.send({ propertyCount, soldCount, offersCount });
+        } catch (err) {
+          res
+            .status(500)
+            .send({ message: "Error fetching agent stats", error: err });
+        }
+      }
+    );
+
+    // get admin stats
+    app.get(
+      "/dashboard/admin",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const totalUsers = await usersCollection.countDocuments({
+            role: "user",
+          });
+          const totalAgents = await usersCollection.countDocuments({
+            role: "agent",
+          });
+          const totalAdmins = await usersCollection.countDocuments({
+            role: "admin",
+          });
+          const totalSales = await propertiesCollection.countDocuments({
+            status: "sold",
+          });
+
+          res.send({ totalUsers, totalAgents, totalAdmins, totalSales });
+        } catch (err) {
+          res
+            .status(500)
+            .send({ message: "Error fetching admin stats", error: err });
+        }
+      }
+    );
 
     console.log("✅ MongoDB connected and users collection ready");
   } catch (err) {
